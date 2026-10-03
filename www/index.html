@@ -2669,8 +2669,6 @@
       const now = new Date().toLocaleString();
       const updates = {};
 
-      if (fromRejected) updates['payment_approvals_history/' + reqKey] = null;
-
       let targetBills = [];
       if (req.bills && Array.isArray(req.bills)) {
         targetBills = req.bills;
@@ -2680,8 +2678,30 @@
 
       const orderKey = req.billKey || (targetBills[0] && targetBills[0].billKey) || '';
       const billId = req.billId || (targetBills[0] && targetBills[0].billId) || '';
-      const uniqueHistKey = orderKey || billId || reqKey;
 
+      // Check if target bills are already fully paid
+      let allFullyPaid = true;
+      let targetOrderObj = null;
+      if (targetBills.length > 0) {
+        targetBills.forEach(b => {
+          const bKey = b.billKey || b.orderKey;
+          if (bKey && globalOrdersCache[bKey]) {
+            const bill = globalOrdersCache[bKey];
+            targetOrderObj = bill;
+            const curPaid = parseFloat(bill.paidAmount) || 0;
+            const total = parseFloat(bill.totalAmount) || 0;
+            const curDue = bill.dueAmount !== undefined ? parseFloat(bill.dueAmount) : Math.max(0, total - curPaid);
+            if (curDue > 0) allFullyPaid = false;
+          }
+        });
+      }
+
+      if (allFullyPaid && targetOrderObj && (parseFloat(targetOrderObj.paidAmount) || 0) >= (parseFloat(targetOrderObj.totalAmount) || 0)) {
+        showToast(`Yeh bill (#${targetOrderObj.orderId || billId}) pehle se hi fully paid hai! Duplicate payment approve nahi ho sakti.`);
+        return;
+      }
+
+      // 1. Remove pending request from payment_requests so it moves out of Pending
       for (let rK in globalPaymentRequestsCache) {
         const itm = globalPaymentRequestsCache[rK];
         if (rK === reqKey || (orderKey && itm.billKey === orderKey) || (billId && itm.billId == billId)) {
@@ -2689,14 +2709,32 @@
         }
       }
 
+      // 2. Unique history key for Approved tab
+      const uniqueHistKey = (fromRejected ? reqKey : (orderKey || billId || reqKey));
+
       updates['payment_approvals_history/' + uniqueHistKey] = {
         ...req,
         originalReqKey: reqKey,
         approvedAt: now,
         status: 'Approved',
-        createdAt: Date.now()
+        wasApproved: true,
+        createdAt: req.createdAt || Date.now()
       };
 
+      // 3. Mark any other rejection records of this same bill as wasApproved: true
+      for (let hK in globalPaymentHistoryCache) {
+        const hItem = globalPaymentHistoryCache[hK];
+        if (hItem && (hItem.status || '').toLowerCase() === 'rejected') {
+          const matchBill = (orderKey && (hItem.billKey === orderKey || hItem.orderKey === orderKey)) ||
+                            (billId && (hItem.billId == billId || hItem.orderId == billId));
+          if (matchBill) {
+            updates['payment_approvals_history/' + hK + '/wasApproved'] = true;
+            updates['payment_approvals_history/' + hK + '/resolvedApprovedAt'] = now;
+          }
+        }
+      }
+
+      // 4. Safely update order amounts without ever exceeding totalAmount
       if (targetBills.length > 0) {
         targetBills.forEach(b => {
           const bKey = b.billKey || b.orderKey;
@@ -2705,7 +2743,11 @@
             const bill = globalOrdersCache[bKey];
             const currentPaid = parseFloat(bill.paidAmount) || 0;
             const total = parseFloat(bill.totalAmount) || 0;
-            const newPaid = currentPaid + bAlloc;
+            const currentDue = bill.dueAmount !== undefined ? parseFloat(bill.dueAmount) : Math.max(0, total - currentPaid);
+
+            // Safe allocation capped at remaining due
+            const safeAlloc = Math.max(0, Math.min(bAlloc, currentDue));
+            const newPaid = Math.min(total, currentPaid + safeAlloc);
             const newDue = Math.max(0, total - newPaid);
             let pStatus = (newPaid >= total) ? "Paid" : (newPaid > 0 ? "Partial" : "Pending");
 
@@ -3813,19 +3855,37 @@
             </div>
           `;
         } else if (currentPayApprTab === 'rejected') {
+          const bKey = item.billKey || item.orderKey || '';
+          let targetOrder = (bKey && globalOrdersCache[bKey]) || (bId && Object.values(globalOrdersCache).find(o => o.orderId == bId));
+
+          const isAlreadyApproved = (item.wasApproved === true) ||
+                                    (item.status === 'Approved') ||
+                                    (targetOrder && targetOrder.paymentRequestStatus === 'Approved') ||
+                                    (targetOrder && targetOrder.dueAmount !== undefined && parseFloat(targetOrder.dueAmount) <= 0 && parseFloat(targetOrder.paidAmount || 0) > 0) ||
+                                    approvedEntries.some(([apprK, apprItem]) => (apprItem.billKey && apprItem.billKey === bKey) || (apprItem.billId && bId && apprItem.billId == bId));
+
           h += `
-            <div class="admin-order-box" style="border-left:4px solid var(--danger); display:flex; flex-direction:column; gap:10px;">
+            <div class="admin-order-box" style="border-left:4px solid ${isAlreadyApproved ? 'var(--green)' : 'var(--danger)'}; display:flex; flex-direction:column; gap:10px;">
               <div>
                 <div style="display:flex; justify-content:space-between; align-items:center;">
                   <h4 style="font-size:15px; font-weight:800; color:var(--primary);">${shop}</h4>
-                  <span style="font-size:11px; font-weight:800; background:#fee2e2; color:var(--danger); padding:2px 8px; border-radius:12px;"><i class="fa fa-ban"></i> Rejected</span>
+                  ${isAlreadyApproved ? `
+                    <span style="font-size:11px; font-weight:800; background:#dcfce7; color:var(--green); padding:2px 8px; border-radius:12px;"><i class="fa fa-check-circle"></i> Already Approved</span>
+                  ` : `
+                    <span style="font-size:11px; font-weight:800; background:#fee2e2; color:var(--danger); padding:2px 8px; border-radius:12px;"><i class="fa fa-ban"></i> Rejected</span>
+                  `}
                 </div>
                 <p style="font-size:12px; color:var(--text-muted); margin-top:2px;"><i class="fa fa-phone"></i> +91 ${mob}</p>
-                <p style="font-size:14px; font-weight:800; color:var(--danger); margin-top:4px;">Amount: ₹${amt} <span style="font-size:12px; color:var(--text-muted); font-weight:600;">(Bill #${bId})</span></p>
+                <p style="font-size:14px; font-weight:800; color:${isAlreadyApproved ? 'var(--green)' : 'var(--danger)'}; margin-top:4px;">Amount: ₹${amt} <span style="font-size:12px; color:var(--text-muted); font-weight:600;">(Bill #${bId})</span></p>
                 <p style="font-size:11px; color:var(--text-muted); margin-top:2px;">Rejected At: ${dateStr}</p>
+                ${isAlreadyApproved ? `<p style="font-size:11px; font-weight:700; color:var(--green); margin-top:3px;"><i class="fa fa-info-circle"></i> Yeh payment/bill re-request ke zariye approve ho chuka hai.</p>` : ''}
               </div>
               <div style="display:flex; flex-direction:column; gap:6px;">
-                <button class="btn-sm btn-green" onclick="approvePaymentRequest('${k}', true)"><i class="fa fa-check"></i> Approve Now</button>
+                ${isAlreadyApproved ? `
+                  <span style="font-size:12px; font-weight:800; background:#dcfce7; color:var(--green); padding:8px; border-radius:8px; text-align:center;"><i class="fa fa-check-circle"></i> Already Approved</span>
+                ` : `
+                  <button class="btn-sm btn-green" onclick="approvePaymentRequest('${k}', true)"><i class="fa fa-check"></i> Approve Now</button>
+                `}
               </div>
             </div>
           `;
