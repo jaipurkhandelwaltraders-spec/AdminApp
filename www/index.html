@@ -2661,6 +2661,26 @@
       });
     }
 
+        function doesRequestMatchBills(itm, reqKey, targetBillKeys, targetBillIds, dealerMob) {
+      if (!itm) return false;
+      if (itm.bills && Array.isArray(itm.bills)) {
+        for (let b of itm.bills) {
+          const bKey = b.billKey || b.orderKey || b.key;
+          const bId = b.billId || b.orderId;
+          if (bKey && targetBillKeys.includes(bKey)) return true;
+          if (bId && targetBillIds.includes(String(bId))) return true;
+        }
+      }
+      const directKey = itm.billKey || itm.orderKey;
+      const directId = itm.billId || itm.orderId;
+      if (directKey && targetBillKeys.includes(directKey)) return true;
+      if (directId && targetBillIds.includes(String(directId))) return true;
+      if (dealerMob && (itm.dealerMobile === dealerMob || itm.mobile === dealerMob)) {
+        if (targetBillKeys.length === 0 && targetBillIds.length === 0) return true;
+      }
+      return false;
+    }
+
     function approvePaymentRequest(reqKey, fromRejected = false) {
       const req = fromRejected ? globalPaymentHistoryCache[reqKey] : globalPaymentRequestsCache[reqKey];
       if (!req) return;
@@ -2678,6 +2698,12 @@
 
       const orderKey = req.billKey || (targetBills[0] && targetBills[0].billKey) || '';
       const billId = req.billId || (targetBills[0] && targetBills[0].billId) || '';
+      const dealerMob = req.dealerMobile || req.mobile || '';
+
+      const targetBillKeys = targetBills.map(b => b.billKey || b.orderKey).filter(Boolean);
+      const targetBillIds = targetBills.map(b => String(b.billId || b.orderId)).filter(Boolean);
+      if (orderKey && !targetBillKeys.includes(orderKey)) targetBillKeys.push(orderKey);
+      if (billId && !targetBillIds.includes(String(billId))) targetBillIds.push(String(billId));
 
       // Check if target bills are already fully paid
       let allFullyPaid = true;
@@ -2701,10 +2727,10 @@
         return;
       }
 
-      // 1. Remove pending request from payment_requests so it moves out of Pending
+      // 1. Remove pending request from payment_requests so it automatically disappears from Pending tab!
       for (let rK in globalPaymentRequestsCache) {
         const itm = globalPaymentRequestsCache[rK];
-        if (rK === reqKey || (orderKey && itm.billKey === orderKey) || (billId && itm.billId == billId)) {
+        if (rK === reqKey || doesRequestMatchBills(itm, reqKey, targetBillKeys, targetBillIds, dealerMob)) {
           updates['payment_requests/' + rK] = null;
         }
       }
@@ -2721,13 +2747,11 @@
         createdAt: req.createdAt || Date.now()
       };
 
-      // 3. Mark any other rejection records of this same bill as wasApproved: true
+      // 3. Mark any other rejection records of this same bill as wasApproved: true so Rejected tab shows "Already Approved"
       for (let hK in globalPaymentHistoryCache) {
         const hItem = globalPaymentHistoryCache[hK];
         if (hItem && (hItem.status || '').toLowerCase() === 'rejected') {
-          const matchBill = (orderKey && (hItem.billKey === orderKey || hItem.orderKey === orderKey)) ||
-                            (billId && (hItem.billId == billId || hItem.orderId == billId));
-          if (matchBill) {
+          if (hK === reqKey || doesRequestMatchBills(hItem, reqKey, targetBillKeys, targetBillIds, dealerMob)) {
             updates['payment_approvals_history/' + hK + '/wasApproved'] = true;
             updates['payment_approvals_history/' + hK + '/resolvedApprovedAt'] = now;
           }
@@ -2766,7 +2790,7 @@
       }
 
       db.ref().update(updates).then(() => {
-        showToast("Payment approved successfully!");
+        showToast("Payment approved successfully! Pending se hat gaya aur Approved me chala gaya.");
       });
     }
 
@@ -2790,7 +2814,13 @@
 
       const orderKey = req.billKey || (targetBills[0] && targetBills[0].billKey) || '';
       const billId = req.billId || (targetBills[0] && targetBills[0].billId) || '';
+      const dealerMob = req.dealerMobile || req.mobile || '';
       const uniqueHistKey = orderKey || billId || reqKey;
+
+      const targetBillKeys = targetBills.map(b => b.billKey || b.orderKey).filter(Boolean);
+      const targetBillIds = targetBills.map(b => String(b.billId || b.orderId)).filter(Boolean);
+      if (orderKey && !targetBillKeys.includes(orderKey)) targetBillKeys.push(orderKey);
+      if (billId && !targetBillIds.includes(String(billId))) targetBillIds.push(String(billId));
 
       if (fromApproved) {
         if (reqKey !== uniqueHistKey) updates['payment_approvals_history/' + reqKey] = null;
@@ -2799,6 +2829,7 @@
           originalReqKey: reqKey,
           rejectedAt: now,
           status: 'Rejected',
+          wasApproved: false,
           createdAt: Date.now()
         };
 
@@ -2832,7 +2863,7 @@
       } else {
         for (let rK in globalPaymentRequestsCache) {
           const itm = globalPaymentRequestsCache[rK];
-          if (rK === reqKey || (orderKey && itm.billKey === orderKey) || (billId && itm.billId == billId)) {
+          if (rK === reqKey || doesRequestMatchBills(itm, reqKey, targetBillKeys, targetBillIds, dealerMob)) {
             updates['payment_requests/' + rK] = null;
           }
         }
@@ -2842,6 +2873,7 @@
           originalReqKey: reqKey,
           rejectedAt: now,
           status: 'Rejected',
+          wasApproved: false,
           createdAt: Date.now()
         };
 
@@ -3736,7 +3768,7 @@
       ledgerBox.innerHTML = found ? ledgerHtml : '<p style="color:#888; text-align:center; padding:20px;">No party ledger found.</p>';
     }
 
-    function renderPaymentApprovalsUI() {
+        function renderPaymentApprovalsUI() {
       const box = document.getElementById('paymentApprovalsList');
       if (!box) return;
 
