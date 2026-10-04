@@ -2911,7 +2911,10 @@
 
     function approvePaymentRequest(reqKey, fromRejected = false) {
       const req = fromRejected ? globalPaymentHistoryCache[reqKey] : globalPaymentRequestsCache[reqKey];
-      if (!req) return;
+      if (!req) {
+        showToast("Payment request record not found!");
+        return;
+      }
 
       const amt = parseFloat(req.amount) || 0;
       const now = new Date().toLocaleString();
@@ -2933,29 +2936,7 @@
       if (orderKey && !targetBillKeys.includes(orderKey)) targetBillKeys.push(orderKey);
       if (billId && !targetBillIds.includes(String(billId))) targetBillIds.push(String(billId));
 
-      // Check if target bills are already fully paid
-      let allFullyPaid = true;
-      let targetOrderObj = null;
-      if (targetBills.length > 0) {
-        targetBills.forEach(b => {
-          const bKey = b.billKey || b.orderKey;
-          if (bKey && globalOrdersCache[bKey]) {
-            const bill = globalOrdersCache[bKey];
-            targetOrderObj = bill;
-            const curPaid = parseFloat(bill.paidAmount) || 0;
-            const total = parseFloat(bill.totalAmount) || 0;
-            const curDue = bill.dueAmount !== undefined ? parseFloat(bill.dueAmount) : Math.max(0, total - curPaid);
-            if (curDue > 0) allFullyPaid = false;
-          }
-        });
-      }
-
-      if (allFullyPaid && targetOrderObj && (parseFloat(targetOrderObj.paidAmount) || 0) >= (parseFloat(targetOrderObj.totalAmount) || 0)) {
-        showToast(`Yeh bill (#${targetOrderObj.orderId || billId}) pehle se hi fully paid hai! Duplicate payment approve nahi ho sakti.`);
-        return;
-      }
-
-      // 1. Remove pending request from payment_requests so it automatically disappears from Pending tab!
+      // 1. Remove pending request from payment_requests so it disappears from Pending tab
       for (let rK in globalPaymentRequestsCache) {
         const itm = globalPaymentRequestsCache[rK];
         if (rK === reqKey || doesRequestMatchBills(itm, reqKey, targetBillKeys, targetBillIds, dealerMob)) {
@@ -2963,7 +2944,7 @@
         }
       }
 
-      // 2. Unique history key for Approved tab
+      // 2. Set unique record in payment_approvals_history as Approved
       const uniqueHistKey = (fromRejected ? reqKey : (orderKey || billId || reqKey));
 
       updates['payment_approvals_history/' + uniqueHistKey] = {
@@ -2972,21 +2953,24 @@
         approvedAt: now,
         status: 'Approved',
         wasApproved: true,
+        resolvedApprovedAt: now,
         createdAt: req.createdAt || Date.now()
       };
 
-      // 3. Mark any other rejection records of this same bill as wasApproved: true so Rejected tab shows "Already Approved"
+      // 3. Mark any other rejection records of this same bill as resolved (CRITICAL: exclude uniqueHistKey to prevent ancestor path collision)
       for (let hK in globalPaymentHistoryCache) {
-        const hItem = globalPaymentHistoryCache[hK];
-        if (hItem && (hItem.status || '').toLowerCase() === 'rejected') {
-          if (hK === reqKey || doesRequestMatchBills(hItem, reqKey, targetBillKeys, targetBillIds, dealerMob)) {
-            updates['payment_approvals_history/' + hK + '/wasApproved'] = true;
-            updates['payment_approvals_history/' + hK + '/resolvedApprovedAt'] = now;
+        if (hK !== uniqueHistKey) {
+          const hItem = globalPaymentHistoryCache[hK];
+          if (hItem && (hItem.status || '').toLowerCase() === 'rejected') {
+            if (doesRequestMatchBills(hItem, reqKey, targetBillKeys, targetBillIds, dealerMob)) {
+              updates['payment_approvals_history/' + hK + '/wasApproved'] = true;
+              updates['payment_approvals_history/' + hK + '/resolvedApprovedAt'] = now;
+            }
           }
         }
       }
 
-      // 4. Safely update order amounts without ever exceeding totalAmount
+      // 4. Safely update order amounts without exceeding totalAmount
       if (targetBills.length > 0) {
         targetBills.forEach(b => {
           const bKey = b.billKey || b.orderKey;
@@ -3009,16 +2993,21 @@
             updates['orders/' + bKey + '/paymentRequestStatus'] = 'Approved';
             updates['orders/' + bKey + '/lastPaymentRejected'] = null;
             updates['orders/' + bKey + '/paymentRejected'] = null;
+            updates['orders/' + bKey + '/paymentRejectDate'] = null;
           } else if (bKey) {
             updates['orders/' + bKey + '/paymentRequestStatus'] = 'Approved';
             updates['orders/' + bKey + '/lastPaymentRejected'] = null;
             updates['orders/' + bKey + '/paymentRejected'] = null;
+            updates['orders/' + bKey + '/paymentRejectDate'] = null;
           }
         });
       }
 
       db.ref().update(updates).then(() => {
-        showToast("Payment approved successfully! Pending se hat gaya aur Approved me chala gaya.");
+        showToast("Payment approved successfully! Approved tab me chala gaya.");
+      }).catch(err => {
+        console.error("Firebase update failed:", err);
+        showToast("Approval error: " + err.message);
       });
     }
 
@@ -4015,21 +4004,20 @@
         }
       }
 
-      // Group Approved / Rejected
+      // Group Approved / Rejected without dropping records
       const allHist = Object.entries(globalPaymentHistoryCache);
       const approvedEntries = [];
       const rejectedEntries = [];
-      const processedBills = new Set();
 
       allHist.forEach(item => {
         const v = item[1];
-        const billIdentifier = v.billKey || v.billId || item[0];
-        if (processedBills.has(billIdentifier)) return;
-        processedBills.add(billIdentifier);
-
-        const st = (v.status || '').toLowerCase();
-        if (st === 'approved' || st.includes('approved')) approvedEntries.push(item);
-        else if (st === 'rejected' || st.includes('rejected')) rejectedEntries.push(item);
+        if (!v) return;
+        const st = String(v.status || '').trim().toLowerCase();
+        if (st === 'approved' || st.includes('approved')) {
+          approvedEntries.push(item);
+        } else if (st === 'rejected' || st.includes('rejected')) {
+          rejectedEntries.push(item);
+        }
       });
 
       // Sort function for Pending, Approved, Rejected based on payApprSortOrder (Default Newest First)
@@ -4118,11 +4106,13 @@
           const bKey = item.billKey || item.orderKey || '';
           let targetOrder = (bKey && globalOrdersCache[bKey]) || (bId && Object.values(globalOrdersCache).find(o => o.orderId == bId));
 
-          const isAlreadyApproved = (item.wasApproved === true) ||
-                                    (item.status === 'Approved') ||
-                                    (targetOrder && targetOrder.paymentRequestStatus === 'Approved') ||
-                                    (targetOrder && targetOrder.dueAmount !== undefined && parseFloat(targetOrder.dueAmount) <= 0 && parseFloat(targetOrder.paidAmount || 0) > 0) ||
-                                    approvedEntries.some(([apprK, apprItem]) => (apprItem.billKey && apprItem.billKey === bKey) || (apprItem.billId && bId && apprItem.billId == bId));
+          const curDue = targetOrder && targetOrder.dueAmount !== undefined ? parseFloat(targetOrder.dueAmount) : 999;
+          const curPaid = targetOrder ? parseFloat(targetOrder.paidAmount || 0) : 0;
+          const totalAmt = targetOrder ? parseFloat(targetOrder.totalAmount || 0) : 0;
+
+          const isAlreadyApproved = (item.status === 'Approved') || 
+                                    (item.wasApproved === true && curDue <= 0) || 
+                                    (targetOrder && curDue <= 0 && curPaid >= totalAmt && totalAmt > 0);
 
           h += `
             <div class="admin-order-box" style="border-left:4px solid ${isAlreadyApproved ? 'var(--green)' : 'var(--danger)'}; display:flex; flex-direction:column; gap:10px;">
@@ -4138,7 +4128,7 @@
                 <p style="font-size:12px; color:var(--text-muted); margin-top:2px;"><i class="fa fa-phone"></i> +91 ${mob}</p>
                 <p style="font-size:14px; font-weight:800; color:${isAlreadyApproved ? 'var(--green)' : 'var(--danger)'}; margin-top:4px;">Amount: ₹${amt} <span style="font-size:12px; color:var(--text-muted); font-weight:600;">(Bill #${bId})</span></p>
                 <p style="font-size:11px; color:var(--text-muted); margin-top:2px;">Rejected At: ${dateStr}</p>
-                ${isAlreadyApproved ? `<p style="font-size:11px; font-weight:700; color:var(--green); margin-top:3px;"><i class="fa fa-info-circle"></i> Yeh payment/bill re-request ke zariye approve ho chuka hai.</p>` : ''}
+                ${isAlreadyApproved ? `<p style="font-size:11px; font-weight:700; color:var(--green); margin-top:3px;"><i class="fa fa-info-circle"></i> Yeh payment/bill approve ho chuka hai.</p>` : ''}
               </div>
               <div style="display:flex; flex-direction:column; gap:6px;">
                 ${isAlreadyApproved ? `
