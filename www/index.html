@@ -951,6 +951,13 @@
         </div>
         <input type="number" id="payInAmount" class="form-control" placeholder="Enter amount..." style="font-size:16px; font-weight:800; color:var(--green);">
       </div>
+      <div class="form-group">
+        <label>Payment Mode *</label>
+        <select id="payInPaymentMode" class="form-control">
+          <option value="Cash">Cash</option>
+          <option value="Online">Online / UPI / QR</option>
+        </select>
+      </div>
 
       <button class="btn-main btn-green" onclick="submitDirectPaymentIn()" style="margin-top:16px;">
         <i class="fa fa-check-circle"></i> Save Payment Entry
@@ -3507,6 +3514,7 @@
       const dealerMob = document.getElementById('payInDealerSelect').value;
       const amt = parseFloat(document.getElementById('payInAmount').value);
       const selectedBillKey = document.getElementById('payInBillSelect').value;
+      const paymentMode = document.getElementById('payInPaymentMode')?.value || 'Cash';
 
       if (!dealerMob) { showToast("Please select a party/dealer!"); return; }
       if (isNaN(amt) || amt <= 0) { showToast("Please enter a valid payment amount!"); return; }
@@ -3532,7 +3540,8 @@
           amount: amt,
           timestamp: nowStr,
           source: 'Payment Credited by Owner',
-          mode: 'Owner Direct Credit'
+          mode: paymentMode,
+          paymentMode: paymentMode
         });
 
         db.ref('orders/' + selectedBillKey).update({
@@ -3585,7 +3594,8 @@
                   amount: allocate,
                   timestamp: nowStr,
                   source: 'Payment Credited by Owner',
-                  mode: 'Owner Direct Credit'
+                  mode: paymentMode,
+                  paymentMode: paymentMode
                 });
               }
             }
@@ -4309,7 +4319,7 @@
                 <p style="font-size:12px; color:var(--text-muted); margin-top:2px;"><i class="fa fa-phone"></i> +91 ${mob}</p>
                 <p style="font-size:14px; font-weight:800; color:var(--green); margin-top:4px;">Amount: ₹${amt} <span style="font-size:12px; color:var(--text-muted); font-weight:600;">(Bill #${bId})</span></p>
                 <p style="font-size:11px; color:var(--text-muted); margin-top:2px;">Requested: ${dateStr}</p>
-                <p style="font-size:11px;font-weight:700;color:var(--primary);">Payment Mode: ${item.paymentMode || 'Online'} ${item.upiId ? ' | UPI ID: '+item.upiId : ''}</p>${item.screenshotData ? `<button class="btn-sm btn-sky" style="margin-top:6px;" onclick="openPaymentScreenshot('${k}','${currentPayApprTab}')"><i class="fa fa-image"></i> View attached screenshot</button>` : '<p style="color:var(--danger);font-size:11px;">Screenshot not attached</p>'}
+                <p style="font-size:11px;font-weight:700;color:var(--primary);">Payment Mode: ${item.paymentMode || ((item.screenshotData || item.upiId) ? 'Online' : 'Mode not recorded')} ${item.upiId ? ' | UPI ID: '+item.upiId : ''}</p>${item.screenshotData ? `<button class="btn-sm btn-sky" style="margin-top:6px;" onclick="openPaymentScreenshot('${k}','${currentPayApprTab}')"><i class="fa fa-image"></i> View attached screenshot</button>` : '<p style="color:var(--danger);font-size:11px;">Screenshot not attached</p>'}
               </div>
               <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
                 <button class="btn-sm btn-green" onclick="approvePaymentRequest('${k}', false)"><i class="fa fa-check"></i> Approve</button>
@@ -4328,7 +4338,7 @@
                 <p style="font-size:12px; color:var(--text-muted); margin-top:2px;"><i class="fa fa-phone"></i> +91 ${mob}</p>
                 <p style="font-size:14px; font-weight:800; color:var(--green); margin-top:4px;">Amount: ₹${amt} <span style="font-size:12px; color:var(--text-muted); font-weight:600;">(Bill #${bId})</span></p>
                 <p style="font-size:11px; color:var(--text-muted); margin-top:2px;">Approved At: ${dateStr}</p>
-                <p style="font-size:11px;font-weight:700;color:var(--primary);">Payment Mode: ${item.paymentMode || 'Online'} ${item.upiId ? ' | UPI ID: '+item.upiId : ''}</p>
+                <p style="font-size:11px;font-weight:700;color:var(--primary);">Payment Mode: ${item.paymentMode || ((item.screenshotData || item.upiId) ? 'Online' : 'Mode not recorded')} ${item.upiId ? ' | UPI ID: '+item.upiId : ''}</p>
                 ${item.screenshotData ? `<button class="btn-sm btn-sky" style="margin-top:6px;" onclick="openPaymentScreenshot('${k}','approved')"><i class="fa fa-image"></i> View attached screenshot</button>` : '<small style="color:var(--muted);">No screenshot attached</small>'}
               </div>
               <div style="display:flex; flex-direction:column; gap:6px;">
@@ -4362,7 +4372,7 @@
                 <p style="font-size:12px; color:var(--text-muted); margin-top:2px;"><i class="fa fa-phone"></i> +91 ${mob}</p>
                 <p style="font-size:14px; font-weight:800; color:${isAlreadyApproved ? 'var(--green)' : 'var(--danger)'}; margin-top:4px;">Amount: ₹${amt} <span style="font-size:12px; color:var(--text-muted); font-weight:600;">(Bill #${bId})</span></p>
                 <p style="font-size:11px; color:var(--text-muted); margin-top:2px;">Rejected At: ${dateStr}</p>
-                <p style="font-size:11px;font-weight:700;color:var(--primary);">Payment Mode: ${item.paymentMode || 'Online'} ${item.upiId ? ' | UPI ID: '+item.upiId : ''}</p>
+                <p style="font-size:11px;font-weight:700;color:var(--primary);">Payment Mode: ${item.paymentMode || ((item.screenshotData || item.upiId) ? 'Online' : 'Mode not recorded')} ${item.upiId ? ' | UPI ID: '+item.upiId : ''}</p>
                 ${item.screenshotData ? `<button class="btn-sm btn-sky" style="margin-top:6px;" onclick="openPaymentScreenshot('${k}','rejected')"><i class="fa fa-image"></i> View attached screenshot</button>` : '<small style="color:var(--muted);">No screenshot attached</small>'}
                 ${isAlreadyApproved ? `<p style="font-size:11px; font-weight:700; color:var(--green); margin-top:3px;"><i class="fa fa-info-circle"></i> Yeh payment/bill approve ho chuka hai.</p>` : ''}
               </div>
