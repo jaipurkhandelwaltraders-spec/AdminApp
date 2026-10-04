@@ -951,13 +951,6 @@
         </div>
         <input type="number" id="payInAmount" class="form-control" placeholder="Enter amount..." style="font-size:16px; font-weight:800; color:var(--green);">
       </div>
-      <div class="form-group">
-        <label>Payment Mode *</label>
-        <select id="payInPaymentMode" class="form-control">
-          <option value="Cash">Cash</option>
-          <option value="Online">Online / UPI / QR</option>
-        </select>
-      </div>
 
       <button class="btn-main btn-green" onclick="submitDirectPaymentIn()" style="margin-top:16px;">
         <i class="fa fa-check-circle"></i> Save Payment Entry
@@ -1182,8 +1175,8 @@
         <div class="home-card" onclick="openSubPage('paymentApprovalsTab')">
           <div class="home-icon" style="background:#d1fae5; color:#059669;"><i class="fa fa-check-double"></i></div>
           <div class="home-info">
-            <h3>Online Payment Collection</h3>
-            <p>View screenshots and approve or reject dealer payments</p>
+            <h3>Payment Approvals</h3>
+            <p>Approve Dealer Payment Requests</p>
           </div>
           <span class="badge-count" id="homePayApprBadge">0</span>
         </div>
@@ -1536,7 +1529,7 @@
         <div id="paymentApprovalsTab" class="sub-page" style="display:none;">
           <div class="card">
             <div class="card-title">
-              <span><i class="fa fa-check-double" style="color:var(--green);"></i> Online Payment Collection & Approvals</span>
+              <span><i class="fa fa-check-double" style="color:var(--green);"></i> Dealer Payment Approvals</span>
               <div class="filter-toolbar-row">
                 <div class="search-input-wrapper">
                   <i class="fa fa-search search-icon-left"></i>
@@ -3514,7 +3507,6 @@
       const dealerMob = document.getElementById('payInDealerSelect').value;
       const amt = parseFloat(document.getElementById('payInAmount').value);
       const selectedBillKey = document.getElementById('payInBillSelect').value;
-      const paymentMode = document.getElementById('payInPaymentMode')?.value || 'Cash';
 
       if (!dealerMob) { showToast("Please select a party/dealer!"); return; }
       if (isNaN(amt) || amt <= 0) { showToast("Please enter a valid payment amount!"); return; }
@@ -3540,8 +3532,7 @@
           amount: amt,
           timestamp: nowStr,
           source: 'Payment Credited by Owner',
-          mode: paymentMode,
-          paymentMode: paymentMode
+          mode: 'Owner Direct Credit'
         });
 
         db.ref('orders/' + selectedBillKey).update({
@@ -3594,8 +3585,7 @@
                   amount: allocate,
                   timestamp: nowStr,
                   source: 'Payment Credited by Owner',
-                  mode: paymentMode,
-                  paymentMode: paymentMode
+                  mode: 'Owner Direct Credit'
                 });
               }
             }
@@ -4210,22 +4200,6 @@
       ledgerBox.innerHTML = found ? ledgerHtml : '<p style="color:#888; text-align:center; padding:20px;">No party ledger found.</p>';
     }
 
-    function openPaymentScreenshot(reqKey, sourceTab) {
-      const item = sourceTab === 'pending' ? globalPaymentRequestsCache[reqKey] : globalPaymentHistoryCache[reqKey];
-      if (!item || !item.screenshotData) { showToast('Is payment ke saath screenshot attach nahi hai.'); return; }
-      let overlay = document.getElementById('paymentScreenshotViewer');
-      if (!overlay) {
-        overlay = document.createElement('div');
-        overlay.id = 'paymentScreenshotViewer';
-        overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.88);z-index:99999;display:flex;align-items:center;justify-content:center;padding:14px;';
-        overlay.innerHTML = `<button type="button" aria-label="Close" onclick="document.getElementById('paymentScreenshotViewer').remove()" style="position:absolute;right:16px;top:14px;background:#fff;color:#111;border:0;border-radius:50%;width:42px;height:42px;font-size:25px;z-index:2;">×</button><div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;overflow:auto;"><img id="paymentScreenshotViewerImage" alt="Payment screenshot" style="display:block;max-width:100%;max-height:100%;object-fit:contain;background:#fff;border-radius:8px;"></div>`;
-        overlay.addEventListener('click', function(e){ if(e.target===overlay) overlay.remove(); });
-        document.body.appendChild(overlay);
-      }
-      document.getElementById('paymentScreenshotViewerImage').src = item.screenshotData;
-      overlay.style.display = 'flex';
-    }
-
         function renderPaymentApprovalsUI() {
       const box = document.getElementById('paymentApprovalsList');
       if (!box) return;
@@ -4319,7 +4293,6 @@
                 <p style="font-size:12px; color:var(--text-muted); margin-top:2px;"><i class="fa fa-phone"></i> +91 ${mob}</p>
                 <p style="font-size:14px; font-weight:800; color:var(--green); margin-top:4px;">Amount: ₹${amt} <span style="font-size:12px; color:var(--text-muted); font-weight:600;">(Bill #${bId})</span></p>
                 <p style="font-size:11px; color:var(--text-muted); margin-top:2px;">Requested: ${dateStr}</p>
-                <p style="font-size:11px;font-weight:700;color:var(--primary);">Payment Mode: ${item.paymentMode || ((item.screenshotData || item.upiId) ? 'Online' : 'Mode not recorded')} ${item.upiId ? ' | UPI ID: '+item.upiId : ''}</p>${item.screenshotData ? `<button class="btn-sm btn-sky" style="margin-top:6px;" onclick="openPaymentScreenshot('${k}','${currentPayApprTab}')"><i class="fa fa-image"></i> View attached screenshot</button>` : '<p style="color:var(--danger);font-size:11px;">Screenshot not attached</p>'}
               </div>
               <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
                 <button class="btn-sm btn-green" onclick="approvePaymentRequest('${k}', false)"><i class="fa fa-check"></i> Approve</button>
@@ -4338,8 +4311,6 @@
                 <p style="font-size:12px; color:var(--text-muted); margin-top:2px;"><i class="fa fa-phone"></i> +91 ${mob}</p>
                 <p style="font-size:14px; font-weight:800; color:var(--green); margin-top:4px;">Amount: ₹${amt} <span style="font-size:12px; color:var(--text-muted); font-weight:600;">(Bill #${bId})</span></p>
                 <p style="font-size:11px; color:var(--text-muted); margin-top:2px;">Approved At: ${dateStr}</p>
-                <p style="font-size:11px;font-weight:700;color:var(--primary);">Payment Mode: ${item.paymentMode || ((item.screenshotData || item.upiId) ? 'Online' : 'Mode not recorded')} ${item.upiId ? ' | UPI ID: '+item.upiId : ''}</p>
-                ${item.screenshotData ? `<button class="btn-sm btn-sky" style="margin-top:6px;" onclick="openPaymentScreenshot('${k}','approved')"><i class="fa fa-image"></i> View attached screenshot</button>` : '<small style="color:var(--muted);">No screenshot attached</small>'}
               </div>
               <div style="display:flex; flex-direction:column; gap:6px;">
                 <button class="btn-sm btn-danger" onclick="rejectPaymentRequest('${k}', true)"><i class="fa fa-times"></i> Reject / Undo</button>
@@ -4372,8 +4343,6 @@
                 <p style="font-size:12px; color:var(--text-muted); margin-top:2px;"><i class="fa fa-phone"></i> +91 ${mob}</p>
                 <p style="font-size:14px; font-weight:800; color:${isAlreadyApproved ? 'var(--green)' : 'var(--danger)'}; margin-top:4px;">Amount: ₹${amt} <span style="font-size:12px; color:var(--text-muted); font-weight:600;">(Bill #${bId})</span></p>
                 <p style="font-size:11px; color:var(--text-muted); margin-top:2px;">Rejected At: ${dateStr}</p>
-                <p style="font-size:11px;font-weight:700;color:var(--primary);">Payment Mode: ${item.paymentMode || ((item.screenshotData || item.upiId) ? 'Online' : 'Mode not recorded')} ${item.upiId ? ' | UPI ID: '+item.upiId : ''}</p>
-                ${item.screenshotData ? `<button class="btn-sm btn-sky" style="margin-top:6px;" onclick="openPaymentScreenshot('${k}','rejected')"><i class="fa fa-image"></i> View attached screenshot</button>` : '<small style="color:var(--muted);">No screenshot attached</small>'}
                 ${isAlreadyApproved ? `<p style="font-size:11px; font-weight:700; color:var(--green); margin-top:3px;"><i class="fa fa-info-circle"></i> Yeh payment/bill approve ho chuka hai.</p>` : ''}
               </div>
               <div style="display:flex; flex-direction:column; gap:6px;">
@@ -5124,5 +5093,63 @@
     function openBulkPriceUpdate(){document.getElementById('bulkPriceValue')?.focus();showToast('Select items, choose price action and apply.');}
 
   </script>
+
+<style>
+.home-section{margin:18px 0 22px}
+.home-section-title{font-size:15px;font-weight:800;color:var(--primary,#1e40af);margin:0 0 10px;padding:0 2px}
+.home-section-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px}
+.home-section .home-card{width:auto!important;min-width:0;min-height:150px;padding:18px 12px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;gap:10px}
+.home-section .home-icon{width:58px;height:58px;flex:0 0 58px}
+.home-section .home-info{width:100%;min-width:0;text-align:center}
+.home-section .home-info h3{font-size:16px;line-height:1.25;overflow-wrap:anywhere;margin:0 0 4px}
+.home-section .home-info p{font-size:13px;line-height:1.35;overflow-wrap:anywhere;margin:0}
+@media(max-width:800px){
+  .home-section-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+  .home-section .home-card{min-height:170px;padding:14px 8px}
+  .home-section .home-info h3{font-size:14px;line-height:1.25}
+  .home-section .home-info p{font-size:12px;line-height:1.3}
+  .home-section-title{font-size:15px}
+}
+</style>
+
+
+<script>
+/* Organize existing home menu cards. Login and inner-page logic remain untouched. */
+(function(){
+  function arrangeAdminHome(){
+    const home=document.getElementById('homeMenuScreen');
+    const grid=home && home.querySelector('.home-grid');
+    if(!home || !grid || home.dataset.organized==='1') return;
+    const all=[...home.querySelectorAll(':scope > .home-card'),...grid.querySelectorAll(':scope > .home-card')];
+    if(!all.length) return;
+    home.dataset.organized='1';
+    const groups=[
+      {title:'Daily Work',targets:['ordersTab','ledgerTab','paymentApprovalsTab','priceApprovalTab']},
+      {title:'Products & Catalogue',targets:['productsTab','bannersTab']},
+      {title:'Dealers & Customers',targets:['dealerRequestsTab','dealersTab','customerDetailsTab','resetTab']},
+      {title:'Administration & Settings',targets:['adminAccountsTab','recycleBinTab','appUpdateTab','settingsTab']}
+    ];
+    const targetOf=el=>{const m=(el.getAttribute('onclick')||'').match(/openSubPage\('([^']+)'\)/);return m?m[1]:'';};
+    const makeSection=(title)=>{
+      const section=document.createElement('section');
+      section.className='home-section';
+      const h=document.createElement('h4'); h.className='home-section-title'; h.textContent=title;
+      const cards=document.createElement('div'); cards.className='home-section-grid';
+      section.append(h,cards); home.appendChild(section); return cards;
+    };
+    const quick=makeSection('Quick Access');
+    const buckets=groups.map(g=>({targets:g.targets,grid:makeSection(g.title)}));
+    all.forEach(card=>{
+      const t=targetOf(card);
+      const bucket=buckets.find(b=>b.targets.includes(t));
+      (bucket?bucket.grid:quick).appendChild(card);
+    });
+    grid.remove();
+  }
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',arrangeAdminHome);
+  else arrangeAdminHome();
+})();
+</script>
+
 </body>
 </html>
