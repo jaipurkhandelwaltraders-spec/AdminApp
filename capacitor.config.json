@@ -1,5 +1,9 @@
 {
   "appId": "com.khandelwaltraders.admin",
   "appName": "KT Admin",
-  "webDir": "www"
+  "webDir": "www",
+  "server": {
+    "url": "https://kt-online.web.app",
+    "cleartext": true
+  }
 }

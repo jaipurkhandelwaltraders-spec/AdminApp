@@ -4200,7 +4200,42 @@
       ledgerBox.innerHTML = found ? ledgerHtml : '<p style="color:#888; text-align:center; padding:20px;">No party ledger found.</p>';
     }
 
-        function renderPaymentApprovalsUI() {
+        function paymentScreenshotButtons(item, reqKey) {
+      const screenshot = item && item.screenshotData;
+      if (!screenshot) return '';
+      const safeKey = String(reqKey || 'payment').replace(/[^a-zA-Z0-9_-]/g, '');
+      const fileName = `payment-screenshot-${safeKey}.jpg`;
+      return `
+        <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:8px;">
+          <button type="button" class="btn-sm btn-sky" onclick="viewPaymentScreenshotByKey('${safeKey}')"><i class="fa fa-image"></i> View Screenshot</button>
+          <a class="btn-sm btn-green" href="${screenshot}" download="${fileName}" style="text-decoration:none; display:inline-flex; align-items:center; justify-content:center;"><i class="fa fa-download"></i> Download Screenshot</a>
+        </div>
+        <div id="paymentScreenshotData_${safeKey}" data-screenshot="${screenshot}" style="display:none;"></div>
+      `;
+    }
+
+    function viewPaymentScreenshotByKey(reqKey) {
+      const el = document.getElementById('paymentScreenshotData_' + reqKey);
+      const screenshot = el ? el.getAttribute('data-screenshot') : '';
+      if (!screenshot) { showToast('Payment screenshot available nahi hai.'); return; }
+      let overlay = document.getElementById('paymentScreenshotViewer');
+      if (overlay) overlay.remove();
+      overlay = document.createElement('div');
+      overlay.id = 'paymentScreenshotViewer';
+      overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.9);z-index:99999;display:flex;align-items:center;justify-content:center;padding:14px;';
+      overlay.innerHTML = `
+        <div style="position:absolute;right:16px;top:14px;display:flex;gap:8px;z-index:2;">
+          <a href="${screenshot}" download="payment-screenshot-${reqKey}.jpg" style="display:inline-flex;align-items:center;gap:6px;background:#16a34a;color:#fff;text-decoration:none;border-radius:10px;padding:10px 13px;font-size:13px;font-weight:800;box-shadow:0 3px 10px rgba(0,0,0,.25);"><i class="fa fa-download"></i> Download</a>
+          <button type="button" onclick="document.getElementById('paymentScreenshotViewer').remove()" style="background:#fff;color:#111;border:0;border-radius:50%;width:42px;height:42px;font-size:25px;">×</button>
+        </div>
+        <div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;overflow:auto;">
+          <img src="${screenshot}" alt="Payment screenshot" style="display:block;max-width:100%;max-height:100%;object-fit:contain;background:#fff;border-radius:8px;">
+        </div>`;
+      overlay.addEventListener('click', function(e){ if(e.target === overlay) overlay.remove(); });
+      document.body.appendChild(overlay);
+    }
+
+    function renderPaymentApprovalsUI() {
       const box = document.getElementById('paymentApprovalsList');
       if (!box) return;
 
@@ -4293,6 +4328,7 @@
                 <p style="font-size:12px; color:var(--text-muted); margin-top:2px;"><i class="fa fa-phone"></i> +91 ${mob}</p>
                 <p style="font-size:14px; font-weight:800; color:var(--green); margin-top:4px;">Amount: ₹${amt} <span style="font-size:12px; color:var(--text-muted); font-weight:600;">(Bill #${bId})</span></p>
                 <p style="font-size:11px; color:var(--text-muted); margin-top:2px;">Requested: ${dateStr}</p>
+                ${paymentScreenshotButtons(item, k)}
               </div>
               <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
                 <button class="btn-sm btn-green" onclick="approvePaymentRequest('${k}', false)"><i class="fa fa-check"></i> Approve</button>
@@ -4311,6 +4347,7 @@
                 <p style="font-size:12px; color:var(--text-muted); margin-top:2px;"><i class="fa fa-phone"></i> +91 ${mob}</p>
                 <p style="font-size:14px; font-weight:800; color:var(--green); margin-top:4px;">Amount: ₹${amt} <span style="font-size:12px; color:var(--text-muted); font-weight:600;">(Bill #${bId})</span></p>
                 <p style="font-size:11px; color:var(--text-muted); margin-top:2px;">Approved At: ${dateStr}</p>
+                ${paymentScreenshotButtons(item, k)}
               </div>
               <div style="display:flex; flex-direction:column; gap:6px;">
                 <button class="btn-sm btn-danger" onclick="rejectPaymentRequest('${k}', true)"><i class="fa fa-times"></i> Reject / Undo</button>
@@ -4344,6 +4381,7 @@
                 <p style="font-size:14px; font-weight:800; color:${isAlreadyApproved ? 'var(--green)' : 'var(--danger)'}; margin-top:4px;">Amount: ₹${amt} <span style="font-size:12px; color:var(--text-muted); font-weight:600;">(Bill #${bId})</span></p>
                 <p style="font-size:11px; color:var(--text-muted); margin-top:2px;">Rejected At: ${dateStr}</p>
                 ${isAlreadyApproved ? `<p style="font-size:11px; font-weight:700; color:var(--green); margin-top:3px;"><i class="fa fa-info-circle"></i> Yeh payment/bill approve ho chuka hai.</p>` : ''}
+                ${paymentScreenshotButtons(item, k)}
               </div>
               <div style="display:flex; flex-direction:column; gap:6px;">
                 ${isAlreadyApproved ? `
